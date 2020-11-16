@@ -93,7 +93,7 @@ func (n *NodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 
 	targetPath := req.GetTargetPath()
 	err = os.MkdirAll(targetPath, 0750)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, errors.New(err.Error())
 	}
 
