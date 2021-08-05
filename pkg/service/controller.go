@@ -82,7 +82,6 @@ func (c *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 			klog.Errorf(msg.Error())
 			return nil, msg
 		}
-
 		// creating the disk
 		disk, err = ovirtsdk.NewDiskBuilder().
 			Name(diskName).
@@ -196,15 +195,21 @@ func (c *ControllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 // ControllerPublishVolume takes a volume, which is an oVirt disk, and attaches it to a node, which is an oVirt VM.
 func (c *ControllerService) ControllerPublishVolume(
 	ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-
-	klog.Infof("Attaching Disk %s to VM %s", req.VolumeId, req.NodeId)
+	volumeId := req.VolumeId
+	if len(volumeId) == 0 {
+		return nil, fmt.Errorf("error required request volumeId wasn't set")
+	}
+	nodeId := req.NodeId
+	if len(nodeId) == 0 {
+		return nil, fmt.Errorf("error required request nodeId wasn't set")
+	}
+	klog.Infof("Attaching Disk %s to VM %s", volumeId, nodeId)
 	conn, err := c.ovirtClient.GetConnection()
 	if err != nil {
 		klog.Errorf("Failed to get ovirt client connection")
 		return nil, err
 	}
-
-	da, err := diskAttachmentByVmAndDisk(conn, req.NodeId, req.VolumeId)
+	da, err := diskAttachmentByVmAndDisk(conn, nodeId, volumeId)
 	if err != nil {
 		klog.Error(err)
 		return nil, errors.Wrap(err, "failed finding disk attachments")
@@ -213,53 +218,42 @@ func (c *ControllerService) ControllerPublishVolume(
 		klog.Infof("Disk %s is already attached to VM %s, returning OK", req.VolumeId, req.NodeId)
 		return &csi.ControllerPublishVolumeResponse{}, nil
 	}
-
-	vmService := conn.SystemService().VmsService().VmService(req.NodeId)
-
-	attachmentBuilder := ovirtsdk.NewDiskAttachmentBuilder().
-		DiskBuilder(ovirtsdk.NewDiskBuilder().Id(req.VolumeId)).
-		Interface(ovirtsdk.DISKINTERFACE_VIRTIO_SCSI).
-		Bootable(false).
-		Active(true)
-
-	_, err = vmService.
-		DiskAttachmentsService().
-		Add().
-		Attachment(attachmentBuilder.MustBuild()).
-		Send()
+	err = attachDiskToVM(ctx, conn, volumeId, nodeId)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed attaching disk to VM")
 	}
 	klog.Infof("Attached Disk %v to VM %s", req.VolumeId, req.NodeId)
 	return &csi.ControllerPublishVolumeResponse{}, nil
 }
 
 //ControllerUnpublishVolume detaches the disk from the VM.
-func (c *ControllerService) ControllerUnpublishVolume(_ context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	klog.Infof("Detaching Disk %s from VM %s", req.VolumeId, req.NodeId)
+func (c *ControllerService) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+	volumeId := req.VolumeId
+	if len(volumeId) == 0 {
+		return nil, fmt.Errorf("error required request volumeId wasn't set")
+	}
+	nodeId := req.NodeId
+	if len(nodeId) == 0 {
+		return nil, fmt.Errorf("error required request nodeId wasn't set")
+	}
+	klog.Infof("Detaching Disk %s from VM %s", volumeId, nodeId)
 	conn, err := c.ovirtClient.GetConnection()
 	if err != nil {
 		klog.Errorf("Failed to get ovirt client connection")
 		return nil, err
 	}
-
-	attachment, err := diskAttachmentByVmAndDisk(conn, req.NodeId, req.VolumeId)
+	attachment, err := diskAttachmentByVmAndDisk(conn, nodeId, volumeId)
 	if err != nil {
 		klog.Error(err)
 		return nil, errors.Wrap(err, "failed finding disk attachments")
 	}
 	if attachment == nil {
-		klog.Infof("Disk attachment %s for VM %s already detached, returning OK", req.VolumeId, req.NodeId)
+		klog.Infof("Disk attachment %s for VM %s already detached, returning OK", volumeId, nodeId)
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
-	_, err = conn.SystemService().VmsService().VmService(req.NodeId).
-		DiskAttachmentsService().
-		AttachmentService(attachment.MustId()).
-		Remove().
-		Send()
-
+	err = detachDiskFromVMByDiskAttachment(ctx, conn, attachment, nodeId)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed detaching Disk From VM")
 	}
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }

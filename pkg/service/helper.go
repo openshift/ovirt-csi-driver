@@ -122,6 +122,58 @@ func expandDisk(ctx context.Context, conn *ovirtsdk.Connection, disk *ovirtsdk.D
 	return nil
 }
 
+func attachDiskToVM(ctx context.Context, conn *ovirtsdk.Connection, diskID string, vmID string) error {
+	vmService := conn.SystemService().VmsService().VmService(vmID)
+
+	attachmentBuilder := ovirtsdk.NewDiskAttachmentBuilder().
+		DiskBuilder(ovirtsdk.NewDiskBuilder().Id(diskID)).
+		Interface(ovirtsdk.DISKINTERFACE_VIRTIO_SCSI).
+		Bootable(false).
+		Active(true)
+
+	correlationID := fmt.Sprintf("disk_attach_%s", utilrand.String(5))
+	_, err := vmService.
+		DiskAttachmentsService().
+		Add().
+		Attachment(attachmentBuilder.MustBuild()).
+		Query("correlation_id", correlationID).
+		Send()
+	if err != nil {
+		return fmt.Errorf("failed attaching disk %s to VM %s, error: %w", diskID, vmID, err)
+	}
+	finished, err := checkJobFinished(ctx, conn, correlationID)
+	if err != nil {
+		return fmt.Errorf("failed attaching disk %s to VM %s, error: %w", diskID, vmID, err)
+	}
+	if !finished {
+		return fmt.Errorf("failed attaching disk %s to VM %s, job %s didn't finish, error: %w",
+			diskID, vmID, correlationID, err)
+	}
+	return nil
+}
+
+func detachDiskFromVMByDiskAttachment(ctx context.Context, conn *ovirtsdk.Connection, attachment *ovirtsdk.DiskAttachment, vmID string) error {
+	correlationID := fmt.Sprintf("disk_detach_%s", utilrand.String(5))
+	_, err := conn.SystemService().VmsService().VmService(vmID).
+		DiskAttachmentsService().
+		AttachmentService(attachment.MustId()).
+		Remove().
+		Query("correlation_id", correlationID).
+		Send()
+	if err != nil {
+		return fmt.Errorf("failed to detach disk %s from VM %s, error: %w", attachment.MustId(), vmID, err)
+	}
+	finished, err := checkJobFinished(ctx, conn, correlationID)
+	if err != nil {
+		return fmt.Errorf("failed to detach disk %s from VM %s, error: %w", attachment.MustId(), vmID, err)
+	}
+	if !finished {
+		return fmt.Errorf("failed to detach disk %s from VM %s, job %s didn't finish, error: %w",
+			attachment.MustId(), vmID, correlationID, err)
+	}
+	return nil
+}
+
 func getDiskFromDiskAttachment(conn *ovirtsdk.Connection, diskAttachment *ovirtsdk.DiskAttachment) (*ovirtsdk.Disk, error) {
 	disk, err := conn.FollowLink(diskAttachment.MustDisk())
 	if err != nil {
