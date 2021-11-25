@@ -9,9 +9,15 @@ import (
 	ovirtclient "github.com/ovirt/go-ovirt-client"
 )
 
+func getController(helper ovirtclient.TestHelper) csi.ControllerServer {
+	return service.NewControllerServer(func() (ovirtclient.Client, error) {
+		return helper.GetClient(), nil
+	})
+}
+
 func TestVolumeCreation(t *testing.T) {
 	helper := getMockHelper(t)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), "test")
+	controller := getController(helper)
 
 	createVolumeResponse, err := createTestVolume(helper, controller)
 	if err != nil {
@@ -35,7 +41,7 @@ func TestVolumeCreation(t *testing.T) {
 
 func TestDeleteVolume(t *testing.T) {
 	helper := getMockHelper(t)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), "test")
+	controller := getController(helper)
 	createVolumeResponse, err := createTestVolume(helper, controller)
 	if err != nil {
 		t.Fatalf("failed to create test volume (%v)", err)
@@ -58,7 +64,7 @@ func TestDeleteVolume(t *testing.T) {
 
 func TestDeleteNonExistentVolume(t *testing.T) {
 	helper := getMockHelper(t)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), "test")
+	controller := getController(helper)
 
 	_, err := controller.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{
 		VolumeId: "doesn't exists",
@@ -164,7 +170,7 @@ func TestControllerUnpublishVolume(t *testing.T) {
 		t.Fatalf("failed to publish the volume (%v)", err)
 	}
 
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), vmId)
+	controller := getController(helper)
 	_, err = controller.ControllerUnpublishVolume(context.Background(), &csi.ControllerUnpublishVolumeRequest{
 		VolumeId: diskId,
 		NodeId:   vmId,
@@ -206,7 +212,7 @@ func TestControllerUnpublishVolumeTwice(t *testing.T) {
 		t.Fatalf("failed to publish the volume (%v)", err)
 	}
 
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), vmId)
+	controller := getController(helper)
 
 	// Unpublish volume.
 	_, err = controller.ControllerUnpublishVolume(context.Background(), &csi.ControllerUnpublishVolumeRequest{
@@ -245,8 +251,8 @@ func TestControllerExpandVolume(t *testing.T) {
 		},
 		Readonly: true,
 	}
-	nodeId, diskId, err := publishTestVolume(helper, publishRequest)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), nodeId)
+	_, diskId, err := publishTestVolume(helper, publishRequest)
+	controller := getController(helper)
 	disk, err := helper.GetClient().GetDisk(diskId)
 	if err != nil {
 		t.Fatalf("failed to get disks (%v)", err)
@@ -281,7 +287,7 @@ func TestControllerExpandVolume(t *testing.T) {
 
 func TestControllerExpandVolumeToSmallerSize(t *testing.T) {
 	helper := getMockHelper(t)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), "test")
+	controller := getController(helper)
 
 	createVolumeResponse, err := createTestVolume(helper, controller)
 	if err != nil {
@@ -309,7 +315,7 @@ func TestControllerExpandVolumeToSmallerSize(t *testing.T) {
 
 func TestControllerGetCapabilities(t *testing.T) {
 	helper := getMockHelper(t)
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), "test")
+	controller := getController(helper)
 	capsResp, err := controller.ControllerGetCapabilities(context.Background(), &csi.ControllerGetCapabilitiesRequest{})
 	if err != nil {
 		t.Fatalf("failed to get controller capabilities (%v)", err)
@@ -320,7 +326,7 @@ func TestControllerGetCapabilities(t *testing.T) {
 	assertHasCapability(caps, csi.ControllerServiceCapability_RPC_EXPAND_VOLUME, t)
 }
 
-func createTestVolume(helper ovirtclient.TestHelper, controller *service.OvirtCSIDriver) (*csi.CreateVolumeResponse, error) {
+func createTestVolume(helper ovirtclient.TestHelper, controller csi.ControllerServer) (*csi.CreateVolumeResponse, error) {
 	testStorageDomain, err := helper.GetClient().GetStorageDomain(helper.GetStorageDomainID())
 	if err != nil {
 		return nil, err
@@ -350,13 +356,15 @@ func publishTestVolume(helper ovirtclient.TestHelper, publishReq *csi.Controller
 		vm, err := helper.GetClient().CreateVM(
 			helper.GetClusterID(),
 			helper.GetBlankTemplateID(),
-			ovirtclient.CreateVMParams().MustWithName("test"))
+			"test",
+			ovirtclient.CreateVMParams(),
+		)
 		if err != nil {
 			return "", "", err
 		}
 		publishReq.NodeId = vm.ID()
 	}
-	controller := service.NewOvirtCSIDriver(helper.GetClient(), publishReq.NodeId)
+	controller := getController(helper)
 	if publishReq.VolumeId == "" {
 		createVolumeResponse, err := createTestVolume(helper, controller)
 		if err != nil {

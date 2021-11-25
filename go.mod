@@ -9,9 +9,10 @@ require (
 	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/onsi/gomega v1.13.0 // indirect
 	github.com/ovirt/go-ovirt v0.0.0-20210809163552-d4276e35d3db // indirect
-	github.com/ovirt/go-ovirt-client v0.7.1
+	github.com/ovirt/go-ovirt-client v0.7.2-0.20211125105627-fccb94e139ab
 	github.com/ovirt/go-ovirt-client-log-klog v1.0.0
-	github.com/ovirt/go-ovirt-client-log/v2 v2.1.0
+	github.com/ovirt/go-ovirt-client-log/v2 v2.2.0
+	github.com/ovirt/k8sovirtcredentialsmonitor v0.3.1-0.20211125152404-ad789a253681
 	github.com/pkg/errors v0.9.1
 	golang.org/x/net v0.0.0-20210428140749-89ef3d95e781
 	golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40

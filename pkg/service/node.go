@@ -20,9 +20,16 @@ import (
 	"k8s.io/utils/mount"
 )
 
-type NodeService struct {
-	nodeId      string
-	ovirtClient ovirtclient.Client
+func NewNodeServer(nodeId string, getClient func() (ovirtclient.Client, error)) csi.NodeServer {
+	return &nodeService{
+		nodeId:    nodeId,
+		getClient: getClient,
+	}
+}
+
+type nodeService struct {
+	nodeId    string
+	getClient func() (ovirtclient.Client, error)
 }
 
 var NodeCaps = []csi.NodeServiceCapability_RPC_Type{
@@ -41,7 +48,7 @@ func baseDevicePathByInterface(diskInterface ovirtclient.DiskInterface) (string,
 	return "", errors.New("device type is unsupported")
 }
 
-func (n *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+func (n *nodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	vId := req.VolumeId
 	if vId == "" {
 		return nil, fmt.Errorf("NodeStageVolumeRequest didn't contain required field VolumeId")
@@ -83,11 +90,11 @@ func (n *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
-func (n *NodeService) NodeUnstageVolume(_ context.Context, _ *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+func (n *nodeService) NodeUnstageVolume(_ context.Context, _ *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (n *NodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+func (n *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	vId := req.VolumeId
 	if vId == "" {
 		return nil, fmt.Errorf("NodeStageVolumeRequest didn't contain required field VolumeId")
@@ -121,7 +128,7 @@ func (n *NodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (n *NodeService) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+func (n *nodeService) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	mounter := mount.New("")
 	klog.Infof("Unmounting %s", req.GetTargetPath())
 	err := mounter.Unmount(req.GetTargetPath())
@@ -133,7 +140,7 @@ func (n *NodeService) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpubl
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (n *NodeService) publishBlockVolume(req *csi.NodePublishVolumeRequest, device string) (*csi.NodePublishVolumeResponse, error) {
+func (n *nodeService) publishBlockVolume(req *csi.NodePublishVolumeRequest, device string) (*csi.NodePublishVolumeResponse, error) {
 	klog.Infof("Publishing block volume, device: %s, req: %+v", device, req)
 	file, err := os.OpenFile(req.TargetPath, os.O_CREATE, os.FileMode(0644))
 	defer file.Close()
@@ -156,7 +163,7 @@ func (n *NodeService) publishBlockVolume(req *csi.NodePublishVolumeRequest, devi
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (n *NodeService) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (n *nodeService) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	if len(req.VolumeId) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "NodeGetVolumeStats volume ID was empty")
 	}
@@ -220,7 +227,7 @@ func (n *NodeService) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolu
 	}, nil
 }
 
-func (n *NodeService) NodeExpandVolume(_ context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+func (n *nodeService) NodeExpandVolume(_ context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	volumePath := req.GetVolumePath()
 	if len(volumePath) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "volume path must be provided")
@@ -256,11 +263,11 @@ func (n *NodeService) NodeExpandVolume(_ context.Context, req *csi.NodeExpandVol
 	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
-func (n *NodeService) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (n *nodeService) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	return &csi.NodeGetInfoResponse{NodeId: n.nodeId}, nil
 }
 
-func (n *NodeService) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+func (n *nodeService) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	caps := make([]*csi.NodeServiceCapability, 0, len(NodeCaps))
 	for _, c := range NodeCaps {
 		caps = append(
@@ -277,8 +284,12 @@ func (n *NodeService) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilit
 	return &csi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
-func (n *NodeService) getDeviceByAttachmentId(ctx context.Context, volumeID, nodeID string) (string, error) {
-	attachment, err := diskAttachmentByVmAndDisk(ctx, n.ovirtClient, nodeID, volumeID)
+func (n *nodeService) getDeviceByAttachmentId(ctx context.Context, volumeID, nodeID string) (string, error) {
+	ovirtClient, err := n.getClient()
+	if err != nil {
+		return "", err
+	}
+	attachment, err := diskAttachmentByVmAndDisk(ctx, ovirtClient, nodeID, volumeID)
 	if err != nil {
 		return "", fmt.Errorf("failed finding disk attachment, error: %w", err)
 	}

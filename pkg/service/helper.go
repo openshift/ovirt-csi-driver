@@ -9,14 +9,7 @@ import (
 )
 
 func isNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	var e ovirtclient.EngineError
-	if errors.As(err, &e) {
-		return e.HasCode(ovirtclient.ENotFound)
-	}
-	return false
+	return ovirtclient.HasErrorCode(err, ovirtclient.ENotFound)
 }
 
 func diskAttachmentByVmAndDisk(ctx context.Context, ovirtClient ovirtclient.Client,

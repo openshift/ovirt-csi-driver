@@ -12,16 +12,13 @@ func getMockHelper(t *testing.T) ovirtclient.TestHelper {
 		"https://localhost/ovirt-engine/api",
 		"admin@internal",
 		"",
+		nil,
 		ovirtclient.TLS().Insecure(),
-		"",
-		"",
-		"",
-		"",
 		true,
 		ovirtclientlog.NewTestLogger(t),
 	)
 	if err != nil {
-		panic(err)
+		t.Fatalf("Failed to create test helper (%v).", err)
 	}
 	return helper
 }

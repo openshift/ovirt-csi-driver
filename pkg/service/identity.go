@@ -10,13 +10,19 @@ import (
 	"k8s.io/klog"
 )
 
-//IdentityService of ovirt-csi-driver
-type IdentityService struct {
-	ovirtClient ovirtclient.Client
+func NewIdentityServer(getClient func() (ovirtclient.Client, error)) csi.IdentityServer {
+	return &identityService{
+		getClient: getClient,
+	}
+}
+
+//identityService of ovirt-csi-driver
+type identityService struct {
+	getClient func() (ovirtclient.Client, error)
 }
 
 //GetPluginInfo returns the vendor name and version - set in build time
-func (i *IdentityService) GetPluginInfo(context.Context, *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
+func (i *identityService) GetPluginInfo(context.Context, *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
 	return &csi.GetPluginInfoResponse{
 		Name:          VendorName,
 		VendorVersion: VendorVersion,
@@ -24,7 +30,7 @@ func (i *IdentityService) GetPluginInfo(context.Context, *csi.GetPluginInfoReque
 }
 
 //GetPluginCapabilities declares the plugins capabilities
-func (i *IdentityService) GetPluginCapabilities(context.Context, *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
+func (i *identityService) GetPluginCapabilities(context.Context, *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
 	return &csi.GetPluginCapabilitiesResponse{
 		Capabilities: []*csi.PluginCapability{
 			{
@@ -46,9 +52,12 @@ func (i *IdentityService) GetPluginCapabilities(context.Context, *csi.GetPluginC
 }
 
 // Probe checks the state of the connection to ovirt-engine
-func (i *IdentityService) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeResponse, error) {
-	err := i.ovirtClient.Test()
+func (i *identityService) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeResponse, error) {
+	client, err := i.getClient()
 	if err != nil {
+		return &csi.ProbeResponse{Ready: &wrappers.BoolValue{Value: false}}, nil
+	}
+	if err := client.Test(); err != nil {
 		klog.Errorf("Could not get connection %v", err)
 		return nil, status.Error(codes.FailedPrecondition, "Could not get connection to ovirt-engine")
 	}
