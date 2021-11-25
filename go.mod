@@ -24,5 +24,3 @@ require (
 	k8s.io/utils v0.0.0-20210527160623-6fdb442a123b
 	sigs.k8s.io/controller-runtime v0.9.2
 )
-
-replace github.com/ovirt/go-ovirt-client v0.6.1-0.20210927190907-b4e32fab2754 => github.com/Gal-Zaidman/go-ovirt-client v0.0.0-20211012125710-ab43b89c03e1
