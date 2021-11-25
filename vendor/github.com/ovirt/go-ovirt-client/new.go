@@ -1,8 +1,6 @@
 package ovirtclient
 
 import (
-	"context"
-	"errors"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -105,7 +103,7 @@ func NewWithVerify(
 	tls TLSProvider,
 	logger Logger,
 	extraSettings ExtraSettings,
-	verify func(connection *ovirtsdk4.Connection) error,
+	verify func(connection Client) error,
 ) (ClientWithLegacySupport, error) {
 	if err := validateURL(url); err != nil {
 		return nil, wrap(err, EBadArgument, "invalid URL: %s", url)
@@ -143,49 +141,25 @@ func NewWithVerify(
 		},
 	}
 
-	if verify != nil {
-		if err := verify(conn); err != nil {
-			return nil, err
-		}
-	}
-
-	return &oVirtClient{
+	client := &oVirtClient{
 		conn:       conn,
 		httpClient: httpClient,
 		logger:     logger,
 		url:        url,
 		nonSecRand: rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
-	}, nil
-}
+	}
 
-func testConnection(conn *ovirtsdk4.Connection) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	for {
-		lastError := conn.SystemService().Connection().Test()
-		if lastError == nil {
-			break
-		}
-		if err := identify(lastError); err != nil {
-			var realErr EngineError
-			// This will always be an engine error
-			_ = errors.As(err, &realErr)
-			if !realErr.CanAutoRetry() {
-				return err
-			}
-			lastError = err
-		}
-		select {
-		case <-time.After(time.Second):
-		case <-ctx.Done():
-			return wrap(
-				lastError,
-				ETimeout,
-				"timeout while attempting to create connection",
-			)
+	if verify != nil {
+		if err := verify(client); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+
+	return client, nil
+}
+
+func testConnection(conn Client) error {
+	return conn.Test()
 }
 
 func validateUsername(username string) error {

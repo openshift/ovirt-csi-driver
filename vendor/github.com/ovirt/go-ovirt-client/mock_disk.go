@@ -31,15 +31,15 @@ func (d *diskWithData) Unlock() {
 func (d *diskWithData) WithAlias(alias *string) *diskWithData {
 	return &diskWithData{
 		disk{
-			client:          d.client,
-			id:              d.id,
-			alias:           *alias,
-			provisionedSize: d.provisionedSize,
-			format:          d.format,
-			storageDomainID: d.storageDomainID,
-			status:          d.status,
-			totalSize:       d.totalSize,
-			sparse:          d.sparse,
+			client:           d.client,
+			id:               d.id,
+			alias:            *alias,
+			provisionedSize:  d.provisionedSize,
+			format:           d.format,
+			storageDomainIDs: d.storageDomainIDs,
+			status:           d.status,
+			totalSize:        d.totalSize,
+			sparse:           d.sparse,
 		},
 		d.lock,
 		d.data,
@@ -48,19 +48,22 @@ func (d *diskWithData) WithAlias(alias *string) *diskWithData {
 
 func (d *diskWithData) withProvisionedSize(ps uint64) (*diskWithData, error) {
 	if d.provisionedSize > ps {
-		return nil, newError(EBadArgument, "Cannot edit Virtual Disk. New disk size must be larger than the current disk size")
+		return nil, newError(
+			EBadArgument,
+			"Cannot edit Virtual Disk. New disk size must be larger than the current disk size",
+		)
 	}
 	return &diskWithData{
 		disk{
-			client:          d.client,
-			id:              d.id,
-			alias:           d.alias,
-			provisionedSize: ps,
-			format:          d.format,
-			storageDomainID: d.storageDomainID,
-			status:          d.status,
-			totalSize:       ps,
-			sparse:          d.sparse,
+			client:           d.client,
+			id:               d.id,
+			alias:            d.alias,
+			provisionedSize:  ps,
+			format:           d.format,
+			storageDomainIDs: d.storageDomainIDs,
+			status:           d.status,
+			totalSize:        ps,
+			sparse:           d.sparse,
 		},
 		d.lock,
 		d.data,

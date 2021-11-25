@@ -8,7 +8,7 @@ This library is built to wrap [go-ovirt](https://github.com/ovirt/go-ovirt), whi
 
 ## Tooling
 
-The main tool to develop this library apart from Go itself is [golangci-lint](https://golanci-lint.run). You can use this tool to sanity-check your code before submitting a PR.
+The main tool to develop this library apart from Go itself is [golangci-lint](https://golangci-lint.run). You can use this tool to sanity-check your code before submitting a PR.
 
 ```
 golangci-lint run

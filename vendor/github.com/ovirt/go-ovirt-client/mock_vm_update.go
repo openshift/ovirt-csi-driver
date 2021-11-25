@@ -10,6 +10,11 @@ func (m *mockClient) UpdateVM(id string, params UpdateVMParameters, _ ...RetrySt
 
 	vm := m.vms[id]
 	if name := params.Name(); name != nil {
+		for _, otherVM := range m.vms {
+			if otherVM.name == *name && otherVM.ID() != vm.ID() {
+				return nil, newError(EConflict, "A VM with the name \"%s\" already exists.", *name)
+			}
+		}
 		vm = vm.withName(*name)
 	}
 	if comment := params.Comment(); comment != nil {

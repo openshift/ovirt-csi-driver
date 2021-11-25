@@ -214,21 +214,6 @@ func wrap(err error, code ErrorCode, format string, args ...interface{}) EngineE
 	}
 }
 
-// identify attempts to identify the reason for the error and create a structure accordingly. If it fails to identify
-// the reason it will return nil.
-//
-// Usage:
-//
-//   if err != nil {
-//     if wrappedError := identify(err); wrappedError != nil {
-//         return wrappedError
-//     }
-//     // Handle unknown error here
-//   }
-func identify(err error) error {
-	return realIdentify(err)
-}
-
 func realIdentify(err error) EngineError {
 	var authErr *ovirtsdk.AuthError
 	var notFoundErr *ovirtsdk.NotFoundError

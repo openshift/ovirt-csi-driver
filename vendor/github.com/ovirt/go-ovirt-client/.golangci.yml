@@ -65,6 +65,8 @@ linters:
     - importas
     # Make package imports always deterministic.
     - gci
+    # Make code properly formatted.
+    - gofmt
     # Prevent faulty error checks.
     - nilerr
     # Prevent direct error checks that won't work with wrapped errors.
@@ -75,15 +77,6 @@ linters:
     - durationcheck
     # Enforce tests being in the _test package.
     - testpackage
-
-    # endregion
-
-
-    # region Code formatting
-
-    # Enforce proper white-space handling.
-    - gofumpt
-    - whitespace
 
     # endregion
 linters-settings:

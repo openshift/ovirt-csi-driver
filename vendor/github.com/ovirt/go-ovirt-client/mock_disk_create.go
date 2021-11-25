@@ -41,13 +41,13 @@ func (m *mockClient) createDisk(
 
 	disk := &diskWithData{
 		disk: disk{
-			client:          m,
-			id:              m.GenerateUUID(),
-			format:          format,
-			provisionedSize: size,
-			totalSize:       size,
-			storageDomainID: storageDomainID,
-			status:          DiskStatusLocked,
+			client:           m,
+			id:               m.GenerateUUID(),
+			format:           format,
+			provisionedSize:  size,
+			totalSize:        size,
+			storageDomainIDs: []string{storageDomainID},
+			status:           DiskStatusLocked,
 		},
 		lock: &sync.Mutex{},
 		data: nil,

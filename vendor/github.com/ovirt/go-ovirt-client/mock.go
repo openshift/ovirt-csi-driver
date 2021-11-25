@@ -23,7 +23,7 @@ type mockClient struct {
 	disks                 map[string]*diskWithData
 	clusters              map[string]*cluster
 	hosts                 map[string]*host
-	templates             map[string]*template
+	templates             map[TemplateID]*template
 	nics                  map[string]*nic
 	vnicProfiles          map[string]*vnicProfile
 	networks              map[string]*network

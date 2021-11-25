@@ -1,6 +1,7 @@
 package ovirtclient
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -186,6 +187,7 @@ func (i *imageTransferImpl) finalize(err error) error {
 	}
 	steps := []func() error{
 		i.finalizeTransfer,
+		i.waitForTransferFinalize,
 		i.waitForDiskOk,
 	}
 	for _, step := range steps {
@@ -376,6 +378,81 @@ func (i *imageTransferImpl) attemptFinalizeTransfer() error {
 	return err
 }
 
+// waitForTransferFinalize waits for a transfer to reach a final state.
+func (i *imageTransferImpl) waitForTransferFinalize() error {
+	return retry(
+		fmt.Sprintf("waiting for finalizing image transfer for disk %s", i.diskID),
+		i.logger,
+		i.retries,
+		i.attemptWaitForTransferFinalize,
+	)
+}
+
+// attemptWaitForTransferFinalize runs a single request checking for the transfer to finalize.
+func (i *imageTransferImpl) attemptWaitForTransferFinalize() error {
+	return i.checkImageTransferPhase(
+		ovirtsdk4.IMAGETRANSFERPHASE_FINISHED_SUCCESS,
+		[]ovirtsdk4.ImageTransferPhase{
+			ovirtsdk4.IMAGETRANSFERPHASE_FINISHED_FAILURE,
+			ovirtsdk4.IMAGETRANSFERPHASE_PAUSED_SYSTEM,
+		},
+	)
+}
+
+func (i *imageTransferImpl) waitForTransferAbort() error {
+	return retry(
+		fmt.Sprintf("waiting for aborting image transfer for disk %s", i.diskID),
+		i.logger,
+		i.retries,
+		i.attemptWaitForTransferAbort,
+	)
+}
+
+// attemptWaitForTransferAbort runs a single request checking for the transfer to abort.
+func (i *imageTransferImpl) attemptWaitForTransferAbort() error {
+	return i.checkImageTransferPhase(
+		ovirtsdk4.IMAGETRANSFERPHASE_FINISHED_FAILURE,
+		[]ovirtsdk4.ImageTransferPhase{
+			ovirtsdk4.IMAGETRANSFERPHASE_FINISHED_SUCCESS,
+			ovirtsdk4.IMAGETRANSFERPHASE_PAUSED_SYSTEM,
+		},
+	)
+}
+
+func (i *imageTransferImpl) checkImageTransferPhase(
+	waitForPhase ovirtsdk4.ImageTransferPhase,
+	disallowedPhases []ovirtsdk4.ImageTransferPhase,
+) error {
+	var notFoundError *ovirtsdk4.NotFoundError
+	transferResponse, err := i.transferService.Get().Send()
+	if err != nil {
+		if errors.As(err, &notFoundError) {
+			// The image transfer disappeared, which happens on oVirt <4.4.7. The calling
+			// party must now wait for the disk to be OK, nothing left for us to do.
+			return nil
+		}
+		return err
+	}
+	transfer, ok := transferResponse.ImageTransfer()
+	if !ok {
+		// Image transfer has disappeared, see comment above.
+		return nil
+	}
+	if transfer.MustPhase() == waitForPhase {
+		return nil
+	}
+	for _, phase := range disallowedPhases {
+		if transfer.MustPhase() == phase {
+			return newError(
+				EUnexpectedImageTransferPhase,
+				"Unexpected image transfer phase %s",
+				transfer.MustPhase(),
+			)
+		}
+	}
+	return newError(EPending, "Transfer is in phase %s", transfer.MustPhase())
+}
+
 // findTransferURL sends HTTP OPTIONS requests to potential transfer URLs via verifyTransferURL to determine if a
 // transfer URL can be used or not. This method sets the i.transferURL variable.
 func (i *imageTransferImpl) findTransferURL() (err error) {
@@ -494,8 +571,16 @@ func (i *imageTransferImpl) abortTransfer() {
 			)
 			errorHappened = true
 		}
-		if err := i.waitForDiskOk(); err != nil {
+		if err := i.waitForTransferAbort(); err != nil {
+			i.logger.Warningf(
+				"failed to wait for disk %s to return to OK state after aborting transfer",
+				i.diskID,
+			)
+			errorHappened = true
+		}
+		if err := i.waitForDiskOk(); err != nil && !HasErrorCode(err, ENotFound) {
 			// We can't really do anything as we are already in a failure state, log the error.
+			// The ENotFound is expected as the disk may be removed if a transfer is aborted.
 			i.logger.Warningf(
 				"failed to wait for disk %s to return to OK state after aborting transfer",
 				i.diskID,

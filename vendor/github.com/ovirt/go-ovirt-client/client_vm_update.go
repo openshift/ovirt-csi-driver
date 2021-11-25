@@ -16,6 +16,9 @@ func (o *oVirtClient) UpdateVM(
 	vm := &ovirtsdk.Vm{}
 	vm.SetId(id)
 	if name := params.Name(); name != nil {
+		if *name == "" {
+			return nil, newError(EBadArgument, "name must not be empty for VM update")
+		}
 		vm.SetName(*name)
 	}
 	if comment := params.Comment(); comment != nil {

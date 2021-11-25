@@ -12,21 +12,65 @@ func NewMock() MockClient {
 	testCluster := generateTestCluster()
 	testHost := generateTestHost(testCluster)
 	testStorageDomain := generateTestStorageDomain()
+	secondaryStorageDomain := generateTestStorageDomain()
 	testDatacenter := generateTestDatacenter(testCluster)
 	testNetwork := generateTestNetwork(testDatacenter)
 	testVNICProfile := generateTestVNICProfile(testNetwork)
 	blankTemplate := &template{
-		id:          BlankTemplateID,
-		name:        "Blank",
-		description: "Blank template",
+		nil,
+		DefaultBlankTemplateID,
+		"Blank",
+		"Blank template",
+		TemplateStatusOK,
+		&vmCPU{
+			&vmCPUTopo{
+				cores:   1,
+				threads: 1,
+				sockets: 1,
+			},
+		},
 	}
 
+	client := getClient(
+		testStorageDomain,
+		secondaryStorageDomain,
+		testCluster,
+		testHost,
+		blankTemplate,
+		testVNICProfile,
+		testNetwork,
+		testDatacenter,
+	)
+
+	testCluster.client = client
+	testHost.client = client
+	blankTemplate.client = client
+	testStorageDomain.client = client
+	secondaryStorageDomain.client = client
+	testDatacenter.client = client
+	testNetwork.client = client
+	testVNICProfile.client = client
+
+	return client
+}
+
+func getClient(
+	testStorageDomain *storageDomain,
+	secondaryStorageDomain *storageDomain,
+	testCluster *cluster,
+	testHost *host,
+	blankTemplate *template,
+	testVNICProfile *vnicProfile,
+	testNetwork *network,
+	testDatacenter *datacenterWithClusters,
+) *mockClient {
 	client := &mockClient{
 		url:  "https://localhost/ovirt-engine/api",
 		lock: &sync.Mutex{},
 		vms:  map[string]*vm{},
 		storageDomains: map[string]*storageDomain{
-			testStorageDomain.ID(): testStorageDomain,
+			testStorageDomain.ID():      testStorageDomain,
+			secondaryStorageDomain.ID(): secondaryStorageDomain,
 		},
 		disks: map[string]*diskWithData{},
 		clusters: map[string]*cluster{
@@ -35,7 +79,7 @@ func NewMock() MockClient {
 		hosts: map[string]*host{
 			testHost.ID(): testHost,
 		},
-		templates: map[string]*template{
+		templates: map[TemplateID]*template{
 			blankTemplate.ID(): blankTemplate,
 		},
 		nics: map[string]*nic{},
@@ -51,15 +95,6 @@ func NewMock() MockClient {
 		diskAttachmentsByVM:   map[string]map[string]*diskAttachment{},
 		diskAttachmentsByDisk: map[string]*diskAttachment{},
 	}
-
-	testCluster.client = client
-	testHost.client = client
-	blankTemplate.client = client
-	testStorageDomain.client = client
-	testDatacenter.client = client
-	testNetwork.client = client
-	testVNICProfile.client = client
-
 	return client
 }
 

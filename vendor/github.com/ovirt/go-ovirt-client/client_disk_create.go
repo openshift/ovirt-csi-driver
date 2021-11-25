@@ -132,11 +132,12 @@ func (o *oVirtClient) CreateDisk(
 	retries ...RetryStrategy,
 ) (Disk, error) {
 	retries = defaultRetries(retries, defaultWriteTimeouts())
+	waitRetries := defaultRetries(retries, defaultLongTimeouts())
 	result, err := o.StartCreateDisk(storageDomainID, format, size, params, retries...)
 	if err != nil {
 		return nil, err
 	}
-	disk, err := result.Wait()
+	disk, err := result.Wait(waitRetries...)
 	if err != nil {
 		o.logger.Warningf("Created disk %s, but failed to wait for it to unlock. (%v)", result.Disk().ID(), err)
 	}

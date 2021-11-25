@@ -2,12 +2,10 @@ github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/ovirt/go-ovirt v0.0.0-20210715091347-08d263954de7 h1:zaF8FIXz+hfsrDMhbYjZepy5BH90wfNufZGLHoOIjSk=
-github.com/ovirt/go-ovirt v0.0.0-20210715091347-08d263954de7/go.mod h1:Zkdj9/rW6eyuw0uOeEns6O3pP5G2ak+bI/tgkQ/tEZI=
 github.com/ovirt/go-ovirt v0.0.0-20210809163552-d4276e35d3db h1:ahvAlEurj4TF1SExDJHNeqknQC8lAwnZEPLyZJuRyd0=
 github.com/ovirt/go-ovirt v0.0.0-20210809163552-d4276e35d3db/go.mod h1:Zkdj9/rW6eyuw0uOeEns6O3pP5G2ak+bI/tgkQ/tEZI=
-github.com/ovirt/go-ovirt-client-log/v2 v2.1.0 h1:cJsHS5CDftm0MseV3LoWKD8Y7lV1k/bdjtlJVxrcm98=
-github.com/ovirt/go-ovirt-client-log/v2 v2.1.0/go.mod h1:mDoU3KIwftpsgZGzXGk5d2UEJYTY0bYMfg/GwPapXL0=
+github.com/ovirt/go-ovirt-client-log/v2 v2.2.0 h1:7iZQs+8moX7aopeAdNU1b12mF/yWWBVA/Pey55F9PTQ=
+github.com/ovirt/go-ovirt-client-log/v2 v2.2.0/go.mod h1:mDoU3KIwftpsgZGzXGk5d2UEJYTY0bYMfg/GwPapXL0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

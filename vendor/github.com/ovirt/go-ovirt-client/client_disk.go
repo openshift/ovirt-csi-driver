@@ -460,8 +460,10 @@ type DiskData interface {
 	TotalSize() uint64
 	// Format is the format of the image.
 	Format() ImageFormat
-	// StorageDomainID is the ID of the storage system used for this disk.
-	StorageDomainID() string
+	// StorageDomainIDs returns a list of storage domains this disk is present on. This will typically be a single
+	// disk, but may have multiple disk when the disk has been copied over to other storage domains. The disk is always
+	// present on at least one disk, so this list will never be empty.
+	StorageDomainIDs() []string
 	// Status returns the status the disk is in.
 	Status() DiskStatus
 	// Sparse indicates sparse provisioning on the disk.
@@ -518,6 +520,9 @@ type Disk interface {
 		params UpdateDiskParameters,
 		retries ...RetryStrategy,
 	) (Disk, error)
+
+	// StorageDomains will fetch and return the storage domains associated with this disk.
+	StorageDomains(retries ...RetryStrategy) ([]StorageDomain, error)
 }
 
 // DiskStatus shows the status of a disk. Certain operations lock a disk, which is important because the disk can then
@@ -630,19 +635,19 @@ func convertSDKDisk(sdkDisk *ovirtsdk4.Disk, client Client) (Disk, error) {
 	if !ok {
 		return nil, newError(EFieldMissing, "disk does not contain an ID")
 	}
-	var storageDomainID string
+	var storageDomainIDs []string
 	if sdkStorageDomain, ok := sdkDisk.StorageDomain(); ok {
-		storageDomainID, _ = sdkStorageDomain.Id()
+		storageDomainID, _ := sdkStorageDomain.Id()
+		storageDomainIDs = append(storageDomainIDs, storageDomainID)
 	}
-	if storageDomainID == "" {
-		if sdkStorageDomains, ok := sdkDisk.StorageDomains(); ok {
-			if len(sdkStorageDomains.Slice()) == 1 {
-				storageDomainID, _ = sdkStorageDomains.Slice()[0].Id()
-			}
+	if sdkStorageDomains, ok := sdkDisk.StorageDomains(); ok {
+		for _, sd := range sdkStorageDomains.Slice() {
+			storageDomainID, _ := sd.Id()
+			storageDomainIDs = append(storageDomainIDs, storageDomainID)
 		}
 	}
-	if storageDomainID == "" {
-		return nil, newError(EFieldMissing, "failed to find a valid storage domain ID for disk %s", id)
+	if len(storageDomainIDs) == 0 {
+		return nil, newError(EFieldMissing, "failed to find a valid storage domain for disk %s", id)
 	}
 	alias, ok := sdkDisk.Alias()
 	if !ok {
@@ -671,28 +676,44 @@ func convertSDKDisk(sdkDisk *ovirtsdk4.Disk, client Client) (Disk, error) {
 	return &disk{
 		client: client,
 
-		id:              id,
-		alias:           alias,
-		provisionedSize: uint64(provisionedSize),
-		totalSize:       uint64(totalSize),
-		format:          ImageFormat(format),
-		storageDomainID: storageDomainID,
-		status:          DiskStatus(status),
-		sparse:          sparse,
+		id:               id,
+		alias:            alias,
+		provisionedSize:  uint64(provisionedSize),
+		totalSize:        uint64(totalSize),
+		format:           ImageFormat(format),
+		storageDomainIDs: storageDomainIDs,
+		status:           DiskStatus(status),
+		sparse:           sparse,
 	}, nil
 }
 
 type disk struct {
 	client Client
 
-	id              string
-	alias           string
-	provisionedSize uint64
-	format          ImageFormat
-	storageDomainID string
-	status          DiskStatus
-	totalSize       uint64
-	sparse          bool
+	id               string
+	alias            string
+	provisionedSize  uint64
+	format           ImageFormat
+	storageDomainIDs []string
+	status           DiskStatus
+	totalSize        uint64
+	sparse           bool
+}
+
+func (d *disk) StorageDomainIDs() []string {
+	return d.storageDomainIDs
+}
+
+func (d *disk) StorageDomains(retries ...RetryStrategy) ([]StorageDomain, error) {
+	storageDomains := make([]StorageDomain, len(d.storageDomainIDs))
+	for i, id := range d.storageDomainIDs {
+		storageDomain, err := d.client.GetStorageDomain(id, retries...)
+		if err != nil {
+			return nil, err
+		}
+		storageDomains[i] = storageDomain
+	}
+	return storageDomains, nil
 }
 
 func (d *disk) Update(params UpdateDiskParameters, retries ...RetryStrategy) (Disk, error) {
@@ -744,10 +765,6 @@ func (d disk) Format() ImageFormat {
 	return d.format
 }
 
-func (d disk) StorageDomainID() string {
-	return d.storageDomainID
-}
-
 func (d disk) StartDownload(format ImageFormat, retries ...RetryStrategy) (ImageDownload, error) {
 	return d.client.StartDownloadDisk(d.id, format, retries...)
 }
@@ -770,7 +787,7 @@ func (d *diskWait) Disk() Disk {
 }
 
 func (d *diskWait) Wait(retries ...RetryStrategy) (Disk, error) {
-	retries = defaultRetries(retries, defaultWriteTimeouts())
+	retries = defaultRetries(retries, defaultLongTimeouts())
 	if err := d.client.waitForJobFinished(d.correlationID, retries); err != nil {
 		return d.disk, err
 	}

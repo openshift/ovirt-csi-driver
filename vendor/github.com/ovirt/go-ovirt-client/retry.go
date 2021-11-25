@@ -3,6 +3,7 @@ package ovirtclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -178,6 +179,10 @@ type contextStrategy struct {
 	ctx context.Context
 }
 
+func (c *contextStrategy) Name() string {
+	return "context strategy"
+}
+
 func (c *contextStrategy) Continue(_ error, _ string) error {
 	return nil
 }
@@ -216,6 +221,10 @@ type exponentialBackoff struct {
 	factor   uint8
 }
 
+func (e *exponentialBackoff) Name() string {
+	return fmt.Sprintf("exponential backoff strategy of %d seconds", e.waitTime/time.Second)
+}
+
 func (e *exponentialBackoff) Wait(_ error) interface{} {
 	waitTime := e.waitTime
 	e.waitTime *= time.Duration(e.factor)
@@ -243,6 +252,10 @@ func AutoRetry() RetryStrategy {
 }
 
 type autoRetryStrategy struct{}
+
+func (a *autoRetryStrategy) Name() string {
+	return "abort non-retryable errors strategy"
+}
 
 func (a *autoRetryStrategy) Continue(err error, action string) error {
 	var engineErr EngineError
@@ -304,6 +317,10 @@ func MaxTries(tries uint16) RetryStrategy {
 type maxTriesStrategy struct {
 	maxTries uint16
 	tries    uint16
+}
+
+func (m *maxTriesStrategy) Name() string {
+	return fmt.Sprintf("maximum of %d retries strategy", m.maxTries)
 }
 
 func (m *maxTriesStrategy) Continue(err error, action string) error {
@@ -370,7 +387,8 @@ func (t *timeoutStrategy) Continue(err error, action string) error {
 		return wrap(
 			err,
 			ETimeout,
-			"timeout while %s, giving up",
+			"timeout of %d seconds while %s, giving up",
+			t.duration/time.Second,
 			action,
 		)
 	}
@@ -412,6 +430,8 @@ func defaultRetries(retries []RetryStrategy, timeout []RetryStrategy) []RetryStr
 	return retries
 }
 
+// defaultReadTimeouts returns a list of retry strategies suitable for read calls. There are view retries and
+// individual calls with retries shouldn't last longer than a minute, otherwise something went wrong.
 func defaultReadTimeouts() []RetryStrategy {
 	return []RetryStrategy{
 		MaxTries(3),
@@ -420,14 +440,18 @@ func defaultReadTimeouts() []RetryStrategy {
 	}
 }
 
+// defaultWriteTimeouts has slightly higher tolerances for write API calls, as they may need longer waiting
+// times.
 func defaultWriteTimeouts() []RetryStrategy {
 	return []RetryStrategy{
 		MaxTries(10),
-		CallTimeout(time.Minute),
+		CallTimeout(2 * time.Minute),
 		Timeout(5 * time.Minute),
 	}
 }
 
+// defaultLongTimeouts contains a strategy to wait for calls that typically take longer, for example waiting for a
+// disk to become ready.
 func defaultLongTimeouts() []RetryStrategy {
 	return []RetryStrategy{
 		MaxTries(30),

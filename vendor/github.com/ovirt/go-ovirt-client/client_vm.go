@@ -14,7 +14,8 @@ type VMClient interface {
 	// CreateVM creates a virtual machine.
 	CreateVM(
 		clusterID string,
-		templateID string,
+		templateID TemplateID,
+		name string,
 		optional OptionalVMParameters,
 		retries ...RetryStrategy,
 	) (VM, error)
@@ -23,8 +24,23 @@ type VMClient interface {
 	// UpdateVM updates the virtual machine with the given parameters.
 	// Use UpdateVMParams to obtain a builder for the params.
 	UpdateVM(id string, params UpdateVMParameters, retries ...RetryStrategy) (VM, error)
+	// StartVM triggers a VM start. The actual VM startup will take time and should be waited for via the
+	// WaitForVMStatus call.
+	StartVM(id string, retries ...RetryStrategy) error
+	// StopVM triggers a VM power-off. The actual VM stop will take time and should be waited for via the
+	// WaitForVMStatus call. The force parameter will cause the shutdown to proceed even if a backup is currently
+	// running.
+	StopVM(id string, force bool, retries ...RetryStrategy) error
+	// ShutdownVM triggers a VM shutdown. The actual VM shutdown will take time and should be waited for via the
+	// WaitForVMStatus call. The force parameter will cause the shutdown to proceed even if a backup is currently
+	// running.
+	ShutdownVM(id string, force bool, retries ...RetryStrategy) error
+	// WaitForVMStatus waits for the VM to reach the desired status.
+	WaitForVMStatus(id string, status VMStatus, retries ...RetryStrategy) (VM, error)
 	// ListVMs returns a list of all virtual machines.
 	ListVMs(retries ...RetryStrategy) ([]VM, error)
+	// SearchVMs lists all virtual machines matching a certain criteria specified in params.
+	SearchVMs(params VMSearchParameters, retries ...RetryStrategy) ([]VM, error)
 	// RemoveVM removes a virtual machine specified by id.
 	RemoveVM(id string, retries ...RetryStrategy) error
 }
@@ -40,9 +56,34 @@ type VMData interface {
 	// ClusterID returns the cluster this machine belongs to.
 	ClusterID() string
 	// TemplateID returns the ID of the base template for this machine.
-	TemplateID() string
+	TemplateID() TemplateID
 	// Status returns the current status of the VM.
 	Status() VMStatus
+	// CPU returns the CPU structure of a VM.
+	CPU() VMCPU
+}
+
+// VMCPU is the CPU configuration of a VM.
+type VMCPU interface {
+	// Topo is the desired CPU topology for this VM.
+	Topo() VMCPUTopo
+}
+
+type vmCPU struct {
+	topo *vmCPUTopo
+}
+
+func (v vmCPU) Topo() VMCPUTopo {
+	return v.topo
+}
+
+func (v *vmCPU) clone() *vmCPU {
+	if v == nil {
+		return nil
+	}
+	return &vmCPU{
+		topo: v.topo.clone(),
+	}
 }
 
 // VM is the implementation of the virtual machine in oVirt.
@@ -54,6 +95,19 @@ type VM interface {
 	Update(params UpdateVMParameters, retries ...RetryStrategy) (VM, error)
 	// Remove removes the current VM. This involves an API call and may be slow.
 	Remove(retries ...RetryStrategy) error
+
+	// Start will cause a VM to start. The actual start process takes some time and should be checked via WaitForStatus.
+	Start(retries ...RetryStrategy) error
+	// Stop will cause the VM to power-off. The force parameter will cause the VM to stop even if a backup is currently
+	// running.
+	Stop(force bool, retries ...RetryStrategy) error
+	// Shutdown will cause the VM to shut down. The force parameter will cause the VM to shut down even if a backup
+	// is currently running.
+	Shutdown(force bool, retries ...RetryStrategy) error
+	// WaitForStatus will wait until the VM reaches the desired status. If the status is not reached within the
+	// specified amount of retries, an error will be returned. If the VM enters the desired state, an updated VM
+	// object will be returned.
+	WaitForStatus(status VMStatus, retries ...RetryStrategy) (VM, error)
 
 	// CreateNIC creates a network interface on the current VM. This involves an API call and may be slow.
 	CreateNIC(name string, vnicProfileID string, params OptionalNICParameters, retries ...RetryStrategy) (NIC, error)
@@ -80,13 +134,114 @@ type VM interface {
 	) error
 }
 
+// VMSearchParameters declares the parameters that can be passed to a VM search. Each parameter
+// is declared as a pointer, where a nil value will mean that parameter will not be searched for.
+// All parameters are used together as an AND filter.
+type VMSearchParameters interface {
+	// Name will match the name of the virtual machine exactly.
+	Name() *string
+	// Statuses will return a list of acceptable statuses for this VM search.
+	Statuses() *VMStatusList
+	// NotStatuses will return a list of not acceptable statuses for this VM search.
+	NotStatuses() *VMStatusList
+}
+
+// BuildableVMSearchParameters is a buildable version of VMSearchParameters.
+type BuildableVMSearchParameters interface {
+	VMSearchParameters
+
+	// WithName sets the name to search for.
+	WithName(name string) BuildableVMSearchParameters
+	// WithStatus adds a single status to the filter.
+	WithStatus(status VMStatus) BuildableVMSearchParameters
+	// WithNotStatus excludes a VM status from the search.
+	WithNotStatus(status VMStatus) BuildableVMSearchParameters
+	// WithStatuses will return the statuses the returned VMs should be in.
+	WithStatuses(list VMStatusList) BuildableVMSearchParameters
+	// WithNotStatuses will return the statuses the returned VMs should not be in.
+	WithNotStatuses(list VMStatusList) BuildableVMSearchParameters
+}
+
+// VMSearchParams creates a buildable set of search parameters for easier use.
+func VMSearchParams() BuildableVMSearchParameters {
+	return &vmSearchParams{
+		lock: &sync.Mutex{},
+	}
+}
+
+type vmSearchParams struct {
+	lock *sync.Mutex
+
+	name        *string
+	statuses    *VMStatusList
+	notStatuses *VMStatusList
+}
+
+func (v *vmSearchParams) WithStatus(status VMStatus) BuildableVMSearchParameters {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	newStatuses := append(*v.statuses, status)
+	v.statuses = &newStatuses
+	return v
+}
+
+func (v *vmSearchParams) WithNotStatus(status VMStatus) BuildableVMSearchParameters {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	newNotStatuses := append(*v.notStatuses, status)
+	v.statuses = &newNotStatuses
+	return v
+}
+
+func (v *vmSearchParams) Name() *string {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	return v.name
+}
+
+func (v *vmSearchParams) Statuses() *VMStatusList {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	return v.statuses
+}
+
+func (v *vmSearchParams) NotStatuses() *VMStatusList {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	return v.notStatuses
+}
+
+func (v *vmSearchParams) WithName(name string) BuildableVMSearchParameters {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	v.name = &name
+	return v
+}
+
+func (v *vmSearchParams) WithStatuses(list VMStatusList) BuildableVMSearchParameters {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	newStatuses := list.Copy()
+	v.statuses = &newStatuses
+	return v
+}
+
+func (v *vmSearchParams) WithNotStatuses(list VMStatusList) BuildableVMSearchParameters {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+	newNotStatuses := list.Copy()
+	v.notStatuses = &newNotStatuses
+	return v
+}
+
 // OptionalVMParameters are a list of parameters that can be, but must not necessarily be added on VM creation. This
 // interface is expected to be extended in the future.
 type OptionalVMParameters interface {
-	// Name returns the name for the new VM.
-	Name() string
 	// Comment returns the comment for the VM.
 	Comment() string
+
+	// CPU contains the CPU topology, if any.
+	CPU() VMCPUTopo
 }
 
 // BuildableVMParameters is a variant of OptionalVMParameters that can be changed using the supplied
@@ -94,15 +249,21 @@ type OptionalVMParameters interface {
 type BuildableVMParameters interface {
 	OptionalVMParameters
 
-	// WithName adds a name to the VM.
-	WithName(name string) (BuildableVMParameters, error)
-	// MustWithName is identical to WithName, but panics instead of returning an error.
-	MustWithName(name string) BuildableVMParameters
-
 	// WithComment adds a common to the VM.
 	WithComment(comment string) (BuildableVMParameters, error)
 	// MustWithComment is identical to WithComment, but panics instead of returning an error.
 	MustWithComment(comment string) BuildableVMParameters
+
+	// WithCPU adds a VMCPUTopo to the VM.
+	WithCPU(cpu VMCPUTopo) (BuildableVMParameters, error)
+	// MustWithCPU adds a VMCPUTopo and panics if an error happens.
+	MustWithCPU(cpu VMCPUTopo) BuildableVMParameters
+	// WithCPUParameters is a simplified function that calls NewVMCPUTopo and adds the CPU topology to
+	// the VM.
+	WithCPUParameters(cores, threads, sockets uint) (BuildableVMParameters, error)
+	// MustWithCPUParameters is a simplified function that calls MustNewVMCPUTopo and adds the CPU topology to
+	// the VM.
+	MustWithCPUParameters(cores, threads, sockets uint) BuildableVMParameters
 }
 
 // UpdateVMParameters returns a set of parameters to change on a VM.
@@ -111,6 +272,72 @@ type UpdateVMParameters interface {
 	Name() *string
 	// Comment returns the comment for the VM. Return nil if the name should not be changed.
 	Comment() *string
+}
+
+// VMCPUTopo contains the CPU topology information about a VM.
+type VMCPUTopo interface {
+	// Cores is the number of CPU cores.
+	Cores() uint
+	// Threads is the number of CPU threads in a core.
+	Threads() uint
+	// Sockets is the number of sockets.
+	Sockets() uint
+}
+
+// NewVMCPUTopo creates a new VMCPUTopo from the specified parameters.
+func NewVMCPUTopo(cores uint, threads uint, sockets uint) (VMCPUTopo, error) {
+	if cores == 0 {
+		return nil, newError(EBadArgument, "number of cores must be positive")
+	}
+	if threads == 0 {
+		return nil, newError(EBadArgument, "number of threads must be positive")
+	}
+	if sockets == 0 {
+		return nil, newError(EBadArgument, "number of sockets must be positive")
+	}
+	return &vmCPUTopo{
+		cores:   cores,
+		threads: threads,
+		sockets: sockets,
+	}, nil
+}
+
+// MustNewVMCPUTopo is equivalent to NewVMCPUTopo, but panics instead of returning an error.
+func MustNewVMCPUTopo(cores uint, threads uint, sockets uint) VMCPUTopo {
+	topo, err := NewVMCPUTopo(cores, threads, sockets)
+	if err != nil {
+		panic(err)
+	}
+	return topo
+}
+
+type vmCPUTopo struct {
+	cores   uint
+	threads uint
+	sockets uint
+}
+
+func (v *vmCPUTopo) Cores() uint {
+	return v.cores
+}
+
+func (v *vmCPUTopo) Threads() uint {
+	return v.threads
+}
+
+func (v *vmCPUTopo) Sockets() uint {
+	return v.sockets
+}
+
+func (v *vmCPUTopo) clone() *vmCPUTopo {
+	if v == nil {
+		return nil
+	}
+	return &vmCPUTopo{
+		cores:   v.cores,
+		threads: v.threads,
+		sockets: v.sockets,
+	}
 }
 
 // BuildableUpdateVMParameters is a buildable version of UpdateVMParameters.
@@ -189,6 +416,36 @@ type vmParams struct {
 
 	name    string
 	comment string
+	cpu     VMCPUTopo
+}
+
+func (v *vmParams) CPU() VMCPUTopo {
+	return v.cpu
+}
+
+func (v *vmParams) WithCPU(cpu VMCPUTopo) (BuildableVMParameters, error) {
+	v.cpu = cpu
+	return v, nil
+}
+
+func (v *vmParams) MustWithCPU(cpu VMCPUTopo) BuildableVMParameters {
+	builder, err := v.WithCPU(cpu)
+	if err != nil {
+		panic(err)
+	}
+	return builder
+}
+
+func (v *vmParams) WithCPUParameters(cores, threads, sockets uint) (BuildableVMParameters, error) {
+	cpu, err := NewVMCPUTopo(cores, threads, sockets)
+	if err != nil {
+		return nil, err
+	}
+	return v.WithCPU(cpu)
+}
+
+func (v *vmParams) MustWithCPUParameters(cores, threads, sockets uint) BuildableVMParameters {
+	return v.MustWithCPU(MustNewVMCPUTopo(cores, threads, sockets))
 }
 
 func (v *vmParams) MustWithName(name string) BuildableVMParameters {
@@ -235,8 +492,29 @@ type vm struct {
 	name       string
 	comment    string
 	clusterID  string
-	templateID string
+	templateID TemplateID
 	status     VMStatus
+	cpu        *vmCPU
+}
+
+func (v *vm) Start(retries ...RetryStrategy) error {
+	return v.client.StartVM(v.id, retries...)
+}
+
+func (v *vm) Stop(force bool, retries ...RetryStrategy) error {
+	return v.client.StopVM(v.id, force, retries...)
+}
+
+func (v *vm) Shutdown(force bool, retries ...RetryStrategy) error {
+	return v.client.ShutdownVM(v.id, force, retries...)
+}
+
+func (v *vm) WaitForStatus(status VMStatus, retries ...RetryStrategy) (VM, error) {
+	return v.client.WaitForVMStatus(v.id, status, retries...)
+}
+
+func (v *vm) CPU() VMCPU {
+	return v.cpu
 }
 
 // withName returns a copy of the VM with the new name. It does not change the original copy to avoid
@@ -250,6 +528,7 @@ func (v *vm) withName(name string) *vm {
 		clusterID:  v.clusterID,
 		templateID: v.templateID,
 		status:     v.status,
+		cpu:        v.cpu,
 	}
 }
 
@@ -264,6 +543,7 @@ func (v *vm) withComment(comment string) *vm {
 		clusterID:  v.clusterID,
 		templateID: v.templateID,
 		status:     v.status,
+		cpu:        v.cpu,
 	}
 }
 
@@ -320,7 +600,7 @@ func (v *vm) ClusterID() string {
 	return v.clusterID
 }
 
-func (v *vm) TemplateID() string {
+func (v *vm) TemplateID() TemplateID {
 	return v.templateID
 }
 
@@ -374,6 +654,10 @@ func convertSDKVM(sdkObject *ovirtsdk.Vm, client Client) (VM, error) {
 	if !ok {
 		return nil, newFieldNotFound("template in VM", "template ID")
 	}
+	cpu, err := convertSDKVMCPU(sdkObject)
+	if err != nil {
+		return nil, err
+	}
 
 	return &vm{
 		id:         id,
@@ -381,9 +665,41 @@ func convertSDKVM(sdkObject *ovirtsdk.Vm, client Client) (VM, error) {
 		comment:    comment,
 		clusterID:  clusterID,
 		client:     client,
-		templateID: templateID,
+		templateID: TemplateID(templateID),
 		status:     VMStatus(status),
+		cpu:        cpu,
 	}, nil
+}
+
+func convertSDKVMCPU(sdkObject *ovirtsdk.Vm) (*vmCPU, error) {
+	sdkCPU, ok := sdkObject.Cpu()
+	if !ok {
+		return nil, newFieldNotFound("VM", "CPU")
+	}
+	cpuTopo, ok := sdkCPU.Topology()
+	if !ok {
+		return nil, newFieldNotFound("CPU in VM", "CPU topo")
+	}
+	cores, ok := cpuTopo.Cores()
+	if !ok {
+		return nil, newFieldNotFound("CPU topo in CPU in VM", "cores")
+	}
+	threads, ok := cpuTopo.Threads()
+	if !ok {
+		return nil, newFieldNotFound("CPU topo in CPU in VM", "threads")
+	}
+	sockets, ok := cpuTopo.Sockets()
+	if !ok {
+		return nil, newFieldNotFound("CPU topo in CPU in VM", "sockets")
+	}
+	cpu := &vmCPU{
+		topo: &vmCPUTopo{
+			uint(cores),
+			uint(threads),
+			uint(sockets),
+		},
+	}
+	return cpu, nil
 }
 
 // VMStatus represents the status of a VM.
@@ -440,8 +756,37 @@ const (
 	VMStatusWaitForLaunch VMStatus = "wait_for_launch"
 )
 
+// Validate validates if a VMStatus has a valid value.
+func (s VMStatus) Validate() error {
+	for _, v := range VMStatusValues() {
+		if v == s {
+			return nil
+		}
+	}
+	return newError(EBadArgument, "invalid value for VM status: %s", s)
+}
+
 // VMStatusList is a list of VMStatus.
 type VMStatusList []VMStatus
+
+// Copy creates a separate copy of the current status list.
+func (l VMStatusList) Copy() VMStatusList {
+	result := make([]VMStatus, len(l))
+	for i, s := range l {
+		result[i] = s
+	}
+	return result
+}
+
+// Validate validates the list of statuses.
+func (l VMStatusList) Validate() error {
+	for _, s := range l {
+		if err := s.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // VMStatusValues returns all possible VMStatus values.
 func VMStatusValues() VMStatusList {
