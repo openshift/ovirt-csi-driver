@@ -482,4 +482,3 @@ sigs.k8s.io/structured-merge-diff/v4/typed
 sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.2.0
 sigs.k8s.io/yaml
-# github.com/ovirt/go-ovirt-client v0.6.1-0.20210927190907-b4e32fab2754 => github.com/Gal-Zaidman/go-ovirt-client v0.0.0-20211012125710-ab43b89c03e1
