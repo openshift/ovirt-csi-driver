@@ -71,7 +71,7 @@ func (c *credentialsMonitor) run(
 		c.logger,
 	)
 	if err != nil {
-		c.logger.Errorf("failed to initialize k8s credentials monitor (%w)", err)
+		c.logger.Errorf("failed to initialize k8s credentials monitor (%v)", err)
 		close(stopping)
 		return
 	}
