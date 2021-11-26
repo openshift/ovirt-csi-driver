@@ -40,6 +40,7 @@ func NewOvirtCSIDriver(
 	}
 
 	return &ovirtCSIDriver{
+		logger:  logger,
 		monitor: monitor,
 		grpc:    grpc,
 	}, nil
