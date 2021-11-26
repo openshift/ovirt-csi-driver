@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/ovirt/csi-driver/pkg/service"
-	klog "github.com/ovirt/go-ovirt-client-log-klog"
+	"github.com/ovirt/go-ovirt-client-log-klog"
 	"github.com/ovirt/k8sovirtcredentialsmonitor"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
@@ -30,6 +31,11 @@ var (
 	nodeName   = flag.String("node-name", "", "The node name - the node this pods runs on")
 )
 
+func init() {
+	flag.Set("logtostderr", "true")
+	klog.InitFlags(flag.CommandLine)
+}
+
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
@@ -37,7 +43,7 @@ func main() {
 }
 
 func handle() int {
-	logger := klog.New()
+	logger := kloglogger.New()
 
 	if service.VendorVersion == "" {
 		logger.Errorf("VendorVersion must be set at compile time")
@@ -93,13 +99,19 @@ func handle() int {
 	if *secretNamespace == "" {
 		fh, err := os.Open("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 		if err != nil {
-			logger.Errorf("--secret-namespace is not set and /var/run/secrets/kubernetes.io/serviceaccount/namespace could not be opened (%v)", err)
+			logger.Errorf(
+				"--secret-namespace is not set and /var/run/secrets/kubernetes.io/serviceaccount/namespace could not be opened (%v)",
+				err,
+			)
 			return 1
 		}
 		namespaceData, err := ioutil.ReadAll(fh)
 		if err != nil {
 			_ = fh.Close()
-			logger.Errorf("--secret-namespace is not set and failed to read /var/run/secrets/kubernetes.io/serviceaccount/namespace (%v)", err)
+			logger.Errorf(
+				"--secret-namespace is not set and failed to read /var/run/secrets/kubernetes.io/serviceaccount/namespace (%v)",
+				err,
+			)
 			return 1
 		}
 		_ = fh.Close()
