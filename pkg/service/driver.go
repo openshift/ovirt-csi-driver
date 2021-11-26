@@ -74,7 +74,7 @@ func (driver *ovirtCSIDriver) Run(
 	monitorStopped := make(chan struct{})
 
 	driver.logger.Infof("Starting GRPC server...")
-	driver.grpc.run(ctx, grpcRunning, grpcStopping, grpcStopped)
+	go driver.grpc.run(ctx, grpcRunning, grpcStopping, grpcStopped)
 	defer func() {
 		// Make sure this function waits for GRPC to be stopped.
 		<-grpcStopped
@@ -96,7 +96,7 @@ func (driver *ovirtCSIDriver) Run(
 		return
 	}
 
-	driver.monitor.run(ctx, monitorRunning, monitorStopping, monitorStopped)
+	go driver.monitor.run(ctx, monitorRunning, monitorStopping, monitorStopped)
 	defer func() {
 		// Make sure this function waits for monitor to be stopped
 		<-monitorStopped
