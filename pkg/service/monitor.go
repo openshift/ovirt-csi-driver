@@ -48,19 +48,23 @@ func (c *credentialsMonitor) run(
 	stopped chan struct{},
 ) {
 	defer close(stopped)
+	c.logger.Infof("oVirt credentials secrets monitor starting...")
 	monitor, err := k8sovirtcredentialsmonitor.New(
 		c.kubeConnectionConfig,
 		c.kubeSecretConfig,
 		k8sovirtcredentialsmonitor.Callbacks{
 			OnMonitorRunning: func() {
+				c.logger.Infof("oVirt credentials secrets monitor running.")
 				close(ready)
 			},
 			OnMonitorShuttingDown: func() {
+				c.logger.Infof("oVirt credentials secrets monitor shutting down.")
 				close(stopping)
 			},
 			OnCredentialsChange: func(client ovirtclient.ClientWithLegacySupport) {
 				c.lock.Lock()
 				defer c.lock.Unlock()
+				c.logger.Infof("oVirt credentials secret changed, updating connection.")
 				c.client = client
 			},
 		},

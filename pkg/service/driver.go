@@ -31,7 +31,7 @@ func NewOvirtCSIDriver(
 		return nil, fmt.Errorf("invalid secret configuration (%w)", err)
 	}
 	monitor := newCredentialsMonitor(logger, kubeConnectionConfig, kubeSecretConfig)
-	ids := NewIdentityServer(monitor.getClient)
+	ids := NewIdentityServer(logger, monitor.getClient)
 	cs := NewControllerServer(monitor.getClient)
 	ns := NewNodeServer(nodeId, monitor.getClient)
 	grpc, err := NewNonBlockingGRPCServer(logger, ids, cs, ns, endpoint)
@@ -72,6 +72,7 @@ func (driver *ovirtCSIDriver) Run(
 	monitorStopping := make(chan struct{})
 	monitorStopped := make(chan struct{})
 
+	driver.logger.Infof("Starting GRPC server...")
 	driver.grpc.run(ctx, grpcRunning, grpcStopping, grpcStopped)
 	defer func() {
 		// Make sure this function waits for GRPC to be stopped.
@@ -79,13 +80,16 @@ func (driver *ovirtCSIDriver) Run(
 	}()
 	select {
 	case <-grpcRunning:
+		driver.logger.Infof("GRPC server is now running.")
 	case <-grpcStopping:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly entered \"stopping\" state during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
 	case <-grpcStopped:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly stopped during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
@@ -98,23 +102,28 @@ func (driver *ovirtCSIDriver) Run(
 	}()
 	select {
 	case <-monitorRunning:
+		driver.logger.Infof("oVirt credentials secret monitor is now running.")
 	case <-monitorStopping:
 		driver.lastError = fmt.Errorf("credentials monitor unexpectedly entered \"stopping\" state during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
 	case <-monitorStopped:
 		driver.lastError = fmt.Errorf("credentials monitor unexpectedly stopped during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
 	case <-grpcStopped:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly entered \"stopping\" state during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
 	case <-grpcStopping:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly entered \"stopping\" state during startup")
+		driver.logger.Errorf(driver.lastError.Error())
 		close(stopping)
 		cancel()
 		return
@@ -124,14 +133,19 @@ func (driver *ovirtCSIDriver) Run(
 
 	select {
 	case <-ctx.Done():
+		driver.logger.Infof("Exit signal received, shutting down.")
 	case <-monitorStopped:
 		driver.lastError = fmt.Errorf("credentials monitor unexpectedly entered stopped during run")
+		driver.logger.Errorf("Credentials secret monitor unexpectedly entered stopped during run.")
 	case <-grpcStopped:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly stopped during run")
+		driver.logger.Errorf("GRPC server unexpectedly stopped during run.")
 	case <-monitorStopping:
 		driver.lastError = fmt.Errorf("credentials monitor unexpectedly entered \"stopping\" state during run")
+		driver.logger.Errorf("Credentials monitor unexpectedly entered \"stopping\" state during run.")
 	case <-grpcStopping:
 		driver.lastError = fmt.Errorf("GRPC server unexpectedly entered \"stopping\" state during run")
+		driver.logger.Errorf("GRPC server unexpectedly entered \"stopping\" state during run.")
 	}
 	close(stopping)
 	cancel()
