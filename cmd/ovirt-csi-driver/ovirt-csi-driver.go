@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"time"
@@ -18,10 +19,15 @@ import (
 )
 
 var (
-	endpoint  = flag.String("endpoint", "unix:/csi/csi.sock", "CSI endpoint")
-	namespace = flag.String("namespace", "", "Namespace to run the controllers on")
-	secret    = flag.String("secret", "ovirt-credentials", "Secret to use for oVirt credentials")
-	nodeName  = flag.String("node-name", "", "The node name - the node this pods runs on")
+	endpoint        = flag.String("endpoint", "unix:/csi/csi.sock", "CSI endpoint")
+	namespace       = flag.String("namespace", "", "Namespace to run the controllers on")
+	secretNamespace = flag.String(
+		"secret-namespace",
+		"",
+		"Which namespace to look for the oVirt secret on. If empty, the namespace will be loaded from /var/run/secrets/kubernetes.io if possible.",
+	)
+	secretName = flag.String("secret-name", "ovirt-credentials", "Secret to use for oVirt credentials")
+	nodeName   = flag.String("node-name", "", "The node name - the node this pods runs on")
 )
 
 func main() {
@@ -84,14 +90,35 @@ func handle() int {
 		nodeId = get.Status.NodeInfo.SystemUUID
 	}
 
+	if *secretNamespace == "" {
+		fh, err := os.Open("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+		if err != nil {
+			logger.Errorf("--secret-namespace is not set and /var/run/secrets/kubernetes.io/serviceaccount/namespace could not be opened (%v)", err)
+			return 1
+		}
+		namespaceData, err := ioutil.ReadAll(fh)
+		if err != nil {
+			_ = fh.Close()
+			logger.Errorf("--secret-namespace is not set and failed to read /var/run/secrets/kubernetes.io/serviceaccount/namespace (%v)", err)
+			return 1
+		}
+		_ = fh.Close()
+		nsData := string(namespaceData)
+		secretNamespace = &nsData
+		if *secretNamespace == "" {
+			logger.Errorf("--secret-namespace is not set and /var/run/secrets/kubernetes.io/serviceaccount/namespace is empty")
+			return 1
+		}
+	}
+
 	driver, err := service.NewOvirtCSIDriver(
 		logger,
 		k8sovirtcredentialsmonitor.ConnectionConfig{
 			Config: restConfig,
 		},
 		k8sovirtcredentialsmonitor.OVirtSecretConfig{
-			Namespace: *namespace,
-			Name:      *secret,
+			Namespace: *secretNamespace,
+			Name:      *secretName,
 		},
 		nodeId,
 		*endpoint,
