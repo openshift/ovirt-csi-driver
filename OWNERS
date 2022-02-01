@@ -1,10 +1,8 @@
 approvers:
   - janosdebugs
-  - bennyz
-  - Gal-Zaidman
+  - eslutsky
 reviewers:
   - janosdebugs
-  - bennyz
-  - Gal-Zaidman
+  - eslutsky
 component: "Storage"
 subcomponent: "oVirt CSI Driver"
