@@ -33,6 +33,12 @@ func init() {
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
+
+	go func() {
+		<-time.After(10 * time.Second)
+		os.Exit(1)
+	}()
+
 	handle()
 	os.Exit(0)
 }
